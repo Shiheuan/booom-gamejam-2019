@@ -6,6 +6,14 @@ __lua__
 
 --main
 room = {x = 0, y = 0}
+roomdata = {
+    {
+        isopen = false
+    },
+    {isdone = false},
+    {isdone = false},
+    {isdone = false}
+}
 iscoll = false
 isready = true
 
@@ -48,7 +56,7 @@ end
 
 function title_draw()
     cls()
-    coprint(cor("press keys to start"), 58,80,7,5)
+    coprint(cor("press keys to start"),80,7,5)
 end
 
 function maingame_init()
@@ -62,17 +70,11 @@ end
 function maingame_update()
     g_time+=1
     
-    --if (isready and btnp(4)) then
-    --    last_x, last_y = player.x, player.y
-    --    console_init()
-    --end
     foreach(objects,function(obj)
-		--obj.move(obj.spd.x,obj.spd.y)
 		if obj.type.update~=nil then
 			obj.type.update(obj) 
 		end
 	end)
-    --player:update()
 end
 
 test = false
@@ -81,15 +83,12 @@ function maingame_draw()
     -- layersort down -> top
     cls()
     map(room.x*16, room.y*16, 0, 0, 16, 16)
-    --sspr(8*8, 0, 2*8, 2*8, 40, 40) -- show machine
     foreach(objects,function(obj)
-		--obj.move(obj.spd.x,obj.spd.y)
 		if obj.type.draw~=nil then
 			obj.type.draw(obj) 
 		end
 	end)
-    oprint(test, 58,70,5)
-    coprint(cor("helloworld!"), 58,80,7,5)
+    --coprint(cor("helloworld!"), 58,7,5)
     --print("x "..player.x, 40, 90, 7, 5)
     --print("y "..player.y, 70, 90, 7, 5)
     --print(#objects, 58, 120, 7, 5)
@@ -189,15 +188,16 @@ player = {
 
         -- only one point
         -- todo: collision area
+        -- done
         iscoll = false
         local other
         for i = 1, #objects do
             other = objects[i]
-            if (other ~= nil and other.type ~= this.type and
-                other.x+other.hitbox.x+other.hitbox.w > x + this.hitbox.x and
-                other.y+other.hitbox.y+other.hitbox.h > y + this.hitbox.y and
-                other.x+other.hitbox.x < x + this.hitbox.x + this.hitbox.w and
-                other.y+other.hitbox.y < y + this.hitbox.y + this.hitbox.h) then
+            if (other ~= nil and other.solid and other.type ~= this.type and
+             other.x+other.hitbox.x+other.hitbox.w > x + this.hitbox.x and
+             other.y+other.hitbox.y+other.hitbox.h > y + this.hitbox.y and
+             other.x+other.hitbox.x < x + this.hitbox.x + this.hitbox.w and
+             other.y+other.hitbox.y < y + this.hitbox.y + this.hitbox.h) then
                 iscoll = true
             end
         end
@@ -260,25 +260,61 @@ wall = {
     end
 }
 add(types, wall)
+door = {
+    tile = 5,
+    init = function(obj)
+        obj.state = 0
+        obj.hitbox.x = 1
+        obj.hitbox.w = 4
+    end,
+    update = function(obj)
+        if (obj.state == 0) then
+            if (btnp(5)) then obj.state=1 end
+        elseif (obj.state == 1) then            
+            if (obj.check(player, -1, 0)) then
+                obj.state=2
+                obj.solid = false
+                roomdata[1].isopen = true
+            end
+        end
+    end,
+    draw = function(obj)
+        if (obj.state == 0) then
+            spr(5, obj.x, obj.y)
+        elseif (obj.state == 1) then
+            spr(6, obj.x, obj.y)
+        elseif (obj.state == 2) then
+            spr(3, obj.x, obj.y)
+        end
+    end
+}
+add(types, door)
 gameshell = {
     tile = 8,
-    x,y,
+    show_text = false,
     init = function(obj)
-        x = obj.x
-        y = obj.y
+        gameshell.x = obj.x
+        gameshell.y = obj.y
         obj.hitbox.x = 3
         obj.hitbox.w = 13
         obj.hitbox.h = 11
     end,
     update = function(obj)
-        if ((obj.check(player, 0, 5) or 
-         obj.check(player, -5, 0)) and
-         btnp(4)) then
-            last_x, last_y = player.obj.x, player.obj.y
-            console_init()
+        if (obj.check(player, 0, 5) or 
+         obj.check(player, -5, 0)) then
+            show_text = true
+            if (btnp(4)) then
+                last_x, last_y = player.obj.x, player.obj.y
+                console_init()
+            end
+        else 
+            show_text = false
         end
     end,
     draw = function(obj)
+        if (show_text) then
+            coprint(cor("press a to hack in."), 120,7,5)
+        end
         -- for anim
     end
 }
@@ -290,6 +326,8 @@ function object_init(type, x, y)
     obj.x = x
     obj.y = y
     obj.type = type
+    obj.collideable = true
+    obj.solid = true
     -- default top-left 8x8
     obj.hitbox = {x=0, y=0, w=8, h=8}
 
@@ -299,7 +337,7 @@ function object_init(type, x, y)
 
         for i = 1, #objects do
             other = objects[i]
-            if (other ~= nil and other.type == type and other != obj and
+            if (other ~= nil and other.collideable and other.type == type and other != obj and
              other.x+other.hitbox.x+other.hitbox.w > obj.x+obj.hitbox.x+ox and
              other.y+other.hitbox.y+other.hitbox.h > obj.y+obj.hitbox.y+oy and
              other.x+other.hitbox.x < obj.x+obj.hitbox.x+obj.hitbox.w+ox and
@@ -331,9 +369,23 @@ function load_room(x, y)
 
     room.x = x
     room.y = y
+    local index = 2*x + y + 1
+    if (index == 1) then
+        if (not roomdata[index].isopen) then
+            object_init(door, 11*8, 4*8)
+        end
+    elseif (index == 2) then
+
+    elseif (index == 3) then
+
+    elseif (index == 4) then
+
+    end
+
     -- only do init scene and save scene data
     -- todo: for-loop each tile object in objects{}
-    
+    -- done
+
     -- full screen (or half
     for i = 0, 15 do 
         for j = 0, 15 do
@@ -380,14 +432,14 @@ function coprint(s,y,c,o)
 end
 
 __gfx__
-00000000333332330101010100000000010101010000000000000000000000000006777777777000000000000000000000000000000000000000000000000000
-00000000555552351010101200000000201010100000000000000000000000000066777777777700000000000000000000000000000000000000000000000000
-00700700535552550101010200000000210101010000000000000000000000000066000000007700000000000000000000000000000000000000000000000000
-00077000222222221010101200011000201010100000000000000000000000000566077000006750000000000000000000000000000000000000000000000000
-00077000332333330101010200100010210101010000000000000000000000000566070000006750000000000000000000000000000000000000000000000000
-00700700552355551010101200011000201010100000000000000000000000000066070000006700000000000000000000000000000000000000000000000000
-00000000552555350101010200000000210101010000000000000000000000000067000000007700000000000000000000000000000000000000000000000000
-00000000222222221010101200000000201010100000000000000000000000000067777777777700000000000000000000000000000000000000000000000000
+00000000333332330101010100000000010101010550000000000000000000000006777777777000000000000000000000000000000000000000000000000000
+00000000555552351010101200000000201010100557700005577000000000000066777777777700000000000000000000000000000000000000000000000000
+00700700535552550101010200000000210101010707000005570000000000000066000000007700000000000000000000000000000000000000000000000000
+00077000222222221010101200011000201010100707700007077000000000000566077000006750000000000000000000000000000000000000000000000000
+00077000332333330101010200100010210101010707000007070000000000000566070000006750000000000000000000000000000000000000000000000000
+00700700552355551010101200011000201010100707700007077000000000000066070000006700000000000000000000000000000000000000000000000000
+00000000552555350101010200000000210101010707700007077000000000000067000000007700000000000000000000000000000000000000000000000000
+00000000222222221010101200000000201010100707700007077000000000000067777777777700000000000000000000000000000000000000000000000000
 00000000000000000101010201010101210101010222222222222220000000000066006076007700000000000000000000000000000000000000000000000000
 00000000000000001010101210101010201010102010101010101012000000000067777777777700000000000000000000000000000000000000000000000000
 00000000000000000101010201010101210101012101010101010102000000000067607776077700000000000000000000000000000000000000000000000000
